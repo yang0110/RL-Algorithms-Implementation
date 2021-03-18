@@ -1,3 +1,3 @@
 # RL-Algorithms-Implementation
-My Implementation of Q-Learning, Actor-Crtic, DQN, DDPG,
-SAC, PPO, TD3.
+My Implementation of DQN, AC, A3C,PPO, DDPG, TD3, SAC.
+
