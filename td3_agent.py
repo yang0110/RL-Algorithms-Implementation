@@ -59,7 +59,7 @@ class TD3:
 		self.step_num += 1
 		self.state = next_state
 
-	def update_critic_net(self):
+	def update_net(self):
 		states_v, actions_v, rewards_v, dones_v, next_states_v = self.exp_buffer.sample(self.batch_size)
 		noise = (torch.randn_like(actions_v)*self.sigma).clamp(-self.noise_clip, self.noise_clip)
 		next_actions_v = (self.target_actor_net(next_states_v)+noise).clamp(-1, 1)
