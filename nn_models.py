@@ -3,156 +3,202 @@ import collections
 import torch
 import torch.nn as nn
 import math 
-import ptan 
+import torch.nn.functional as F
 
-'''
-THis file contains neural networks models of RL algorithms: 
-DQN, REINFORCE, Actor-Critic, A2C, A3C, PPO, DDPG, TD3, SAC
+# class state2emb_ac_emb_net(nn.Module):
 
-'''
 
-class DQN_conv(nn.Module):
-    '''
-    NN for input as 2-dimensional matrix: image
-    '''
-    def __init__(self, input_size, n_actions):
-        super(DQN_conv, self).__init__()
-        # Process the image input
-        self.conv = nn.Sequential(
-            nn.Conv2d(input_size, 32, kernel_size=8, stride=4),
-            nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=4, stride=2),
-            nn.ReLU(),
-            nn.Conv2d(64, 64, kernel_size=3, stride=1),
-            nn.ReLU()
-        )
+class AC_value_net(nn.Module):
+    def __init__(self, state_num, dim, ac_matrix=None):
+        super(AC_value_net, self).__init__()
+        self.ac_matrix = ac_matrix
+        # if self.ac_matrix is None:
+        self.embedding = nn.Embedding(state_num, dim)
+        # else:
+            # self.embedding = nn.Embedding.from_pretrained(self.ac_matrix, freeze=True)
 
-        conv_out_size = self._get_conv_out(input_size)
-        # output the q value of each action
-        self.fc = nn.Sequential(
-            nn.Linear(conv_out_size, 512),
-            nn.ReLU(),
-            nn.Linear(512, n_actions)
-        )
+        self.linear1 = nn.Linear(dim, 16)
+        self.relu = nn.ReLU()
+        self.linear2 = nn.Linear(16, 1)
 
-    def _get_conv_out(self, shape):
-        o = self.conv(torch.zeros(1, *shape))
-        return int(np.prod(o.size()))
+    def forward(self, states):
+        emb = self.embedding(states).squeeze(1)
+        x = self.linear1(emb)
+        x = self.relu(x)
+        states_value = self.linear2(x)
+        return emb, states_value
 
-    def forward(self, x):
-        conv_out = self.conv(x).view(x.size()[0], -1)
-        return self.fc(conv_out)
+class AC_policy_net(nn.Module):
+    def __init__(self, action_num, dim):
+        super(AC_policy_net, self).__init__()
+        self.linear1 = nn.Linear(dim, 16)
+        self.relu = nn.ReLU()
+        self.linear2 = nn.Linear(16, action_num)
+            
+    def forward(self, emb):
+        x = self.linear1(emb)
+        x = self.relu(x)
+        action_prob = self.linear2(x)
+        return action_prob
 
 
 
-class DQN_1d(nn.Module):
-    '''
-    DQN for input in the form of 1-dimensional vector
-    '''
-    def __init__(self, input_size, n_actions):
-        super(DQN_1d, self).__init__()
-        # Output the q value of each action
-        self.net=nn.Sequential(
-            nn.Linear(input_size, 64),
-            nn.ReLU(),
-            nn.Linear(64, n_actions)
-            )
+class DSF_sf_nn(nn.Module):
+    def __init__(self, state_num, dim, dsf_matrix=None):
+        super(DSF_sf_nn, self).__init__()
+        self.dsf_matrix = dsf_matrix
+        if self.dsf_matrix is None:
+            self.embedding = nn.Embedding(state_num, dim)
+        else:
+            self.embedding = nn.Embedding.from_pretrained(self.dsf_matrix, freeze=False)
+            
+        self.linear1 = nn.Linear(dim, 16)
+        self.linear2 = nn.Linear(16, dim)
+        self.relu = nn.ReLU()
 
-    def forward(self, x):
-        return self.net(x)
+    def forward(self, states):
+        if self.dsf_matrix is None:
+            state_embs = self.embedding(states).squeeze(1)
+            x = self.linear1(state_embs)
+            x = self.relu(x)
+            state_sfs = self.linear2(x)
+        else:
+            state_sfs = self.embedding(states).squeeze(1)
+            state_embs = state_sfs
+        return state_embs, state_sfs
+
+class DSF_q_nn(nn.Module):
+    def __init__(self, action_num, dim):
+        super(DSF_q_nn, self).__init__()
+        self.linear = nn.Linear(dim, 16)
+        self.linear2 = nn.Linear(16, action_num)
+        self.relu = nn.ReLU()
+
+    def forward(self, state_sfs):
+        x = self.linear(state_sfs)
+        x = self.relu(x)
+        q_vals = self.linear2(x)
+        return q_vals
 
 
-class DQN_dueling(nn.Module):
-    '''
-    Network for dueling DQN
-    '''
-    def __init__(self, input_size, n_actions):
-        super(DQN_dueling, self).__init__()
-        # Output the q value of each action
-        self.net_adv=nn.Sequential(
-            nn.Linear(input_size, hide_size),
-            nn.ReLU(),
-            nn.Linear(hide_size, n_actions)
-            )
-        self.net_val=nn.Sequential(
-            nn.Linear(input_size, hide_size),
-            nn.ReLU(),
-            nn.Linear(hide_size, n_actions)
-            )
+class State2emb_embedding_nn(nn.Module):
+    def __init__(self, state_num, action_num, dim, state2emb_matrix=None):
+        super(State2emb_embedding_nn, self).__init__()
+        if state2emb_matrix is None:
+            self.embedding = nn.Embedding(state_num, dim)
+        else:
+            self.embedding = nn.Embedding.from_pretrained(state2emb_matrix, freeze=False)
 
-    def forward(self, x):
-        val = self.net_val(x)
-        adv = self.net_adv(x)
-        return val + adv - adv.mean()
+    def forward(self, states):
+        x = self.embedding(states).squeeze(1)
+        # x = F.normalize(x, dim=0, p=2)
+        cov = torch.mm(x, x.T)
+        # matrix = torch.sigmoid(cov)
+        return x, cov
 
-class DistributionalDQN(nn.Module):
-    def __init__(self, input_shape, n_actions):
-        super(DistributionalDQN, self).__init__()
+class State2emb_q_nn(nn.Module):
+    def __init__(self, action_num, dim):
+        super(State2emb_q_nn, self).__init__()
+        self.linear1= nn.Linear(dim, 16)
+        self.linear2 = nn.Linear(16, action_num)
+        self.relu = nn.ReLU()
 
-        self.conv = nn.Sequential(
-            nn.Conv2d(input_shape[0], 32, kernel_size=8, stride=4),
-            nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=4, stride=2),
-            nn.ReLU(),
-            nn.Conv2d(64, 64, kernel_size=3, stride=1),
-            nn.ReLU()
-        )
+    def forward(self, states_embedding):
+        y = self.linear1(states_embedding)
+        y = self.relu(y)
+        q_values = self.linear2(y)
+        # q_values = torch.sigmoid(q_values)
+        return q_values
 
-        conv_out_size = self._get_conv_out(input_shape)
-        self.fc = nn.Sequential(
-            nn.Linear(conv_out_size, 512),
-            nn.ReLU(),
-            nn.Linear(512, n_actions * N_ATOMS)
-        )
+class DQN_emb_nn(nn.Module):
+    def __init__(self, state_num, action_num, dim, dqn_matrix=None):
+        super(DQN_emb_nn, self).__init__()
+        # self.embedding = nn.Embedding(state_num, dim)
+        if dqn_matrix is None:
+            self.embedding = nn.Embedding(state_num, dim)
+        else:
+            self.embedding = nn.Embedding.from_pretrained(dqn_matrix, freeze=True)
 
-        self.register_buffer("supports", torch.arange(Vmin, Vmax+DELTA_Z, DELTA_Z))
-        self.softmax = nn.Softmax(dim=1)
-
-    def _get_conv_out(self, shape):
-        o = self.conv(torch.zeros(1, *shape))
-        return int(np.prod(o.size()))
-
-    def forward(self, x):
-        batch_size = x.size()[0]
-        fx = x.float() / 256
-        conv_out = self.conv(fx).view(batch_size, -1)
-        fc_out = self.fc(conv_out)
-        return fc_out.view(batch_size, -1, N_ATOMS)
-
-    def both(self, x):
-        cat_out = self(x)
-        probs = self.apply_softmax(cat_out)
-        weights = probs * self.supports
-        res = weights.sum(dim=2)
-        return cat_out, res
-
-    def qvals(self, x):
-        return self.both(x)[1]
-
-    def apply_softmax(self, t):
-        return self.softmax(t.view(-1, N_ATOMS)).view(t.size())
-
-class PG_net(nn.Module):
-    '''
-    Network for policy gradient algorithm. 
-
-    Paramters:
-    ==========
-    Input: state featue 
-    Output: Actions probability
-    ==========
-    '''
-    def __init__(self, input_size,  n_actions):
-        super(PG_net, self).__init__()
-        self.net = nn.Sequential(
-            nn.Linear(input_size, 64),
-            nn.ReLU(),
-            nn.Linear(64, n_actions)
-            )
-
-    def forward(self, x):
-        x = self.net(x)
+    def forward(self, states):
+        x = self.embedding(states).squeeze(1)
         return x
+
+class DQN_q_nn(nn.Module):
+    def __init__(self, action_num, dim):
+        super(DQN_q_nn, self).__init__()
+        self.linear1= nn.Linear(dim, 16)
+        self.linear2 = nn.Linear(16, action_num)
+        self.relu = nn.ReLU()
+        
+    def forward(self, states_embedding):
+        y = self.linear1(states_embedding)
+        y = self.relu(y)
+        q_values = self.linear2(y)
+        # q_values = torch.sigmoid(q_values)
+        return q_values    
+
+
+
+class DQN_nn(nn.Module):
+    def __init__(self, state_num, action_num, dim, dqn_matrix=None):
+        super(DQN_nn, self).__init__()
+        # self.embedding = nn.Embedding(state_num, dim)
+        if dqn_matrix is None:
+            self.embedding = nn.Embedding(state_num, dim)
+        else:
+            self.embedding = nn.Embedding.from_pretrained(dqn_matrix, freeze=True)
+
+        self.linear = nn.Linear(dim, 16)
+        self.linear2 = nn.Linear(16, action_num)
+        self.relu = nn.ReLU()
+
+    def forward(self, states):
+        x = self.embedding(states).squeeze(1)
+        y = self.linear(x)
+        y = self.relu(y)
+        q_values = self.linear2(y)
+        # q_values = torch.sigmoid(q_values)
+        return q_values
+
+class DQN_node2vec_nn(nn.Module):
+    def __init__(self, state_num, action_num, dim, node2vec_matrix=None):
+        super(DQN_node2vec_nn, self).__init__()
+        if node2vec_matrix is None:
+            self.embedding = nn.Embedding(state_num, dim)
+        else:
+            self.embedding = nn.Embedding.from_pretrained(node2vec_matrix, freeze=True)
+        self.linear = nn.Linear(dim, 16)
+        self.linear2 = nn.Linear(16, action_num)
+        self.relu = nn.ReLU()
+
+    def forward(self, states):
+        x = self.embedding(states).squeeze(1)
+        y = self.linear(x)
+        y = self.relu(y)
+        q_values = self.linear2(y)
+        # q_values = torch.sigmoid(q_values)
+        return q_values
+
+
+class DQN_pvf_nn(nn.Module):
+    def __init__(self, state_num, action_num, dim, pvf_matrix=None):
+        super(DQN_pvf_nn, self).__init__()
+        if pvf_matrix is None:
+            self.embedding = nn.Embedding(state_num, dim)
+        else:
+            self.embedding = nn.Embedding.from_pretrained(pvf_matrix, freeze=True)
+
+        self.linear = nn.Linear(dim, 16)
+        self.linear2 = nn.Linear(16, action_num)
+        self.relu = nn.ReLU()
+
+    def forward(self, states):
+        x = self.embedding(states).squeeze(1)
+        y = self.linear(x)
+        y = self.relu(y)
+        q_values = self.linear2(y)
+        # q_values = torch.sigmoid(q_values)
+        return q_values
 
 
 
@@ -211,85 +257,44 @@ class A2C_net_ca(nn.Module):
         return self.mu(base_out), self.var(base_out), self.value(base_out)
 
 
+
 class DDPG_actor(nn.Module):
-    '''
-    return the action
-    '''
-    def __init__(self, input_size, action_size):
-        super(DDPG_actor, self).__init__()
+    def __init__(self, obs_size, act_size):
+        super(ddpg_actor, self).__init__()
         self.net = nn.Sequential(
-            nn.Linear(input_size, 64), 
-            nn.ReLU(),
-            nn.Linear(64, 32), 
+            nn.Linear(obs_size, 64), 
             nn.ReLU(), 
-            nn.Linear(32, action_size), 
-            nn.Tanh(),
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Linear(32, act_size), 
+            nn.Tanh()
             )
     def forward(self, x):
         return self.net(x)
 
-
 class DDPG_critic(nn.Module):
-    '''
-    return the q value
-    '''
-    def __init__(self, input_size, action_size):
-
-        super(DDPG_critic, self).__init__()
+    def __init__(self, obs_size, act_size):
+        super(ddpg_critic, self).__init__()
         self.obs_net = nn.Sequential(
-            nn.Linear(input_size, 64), 
+            nn.Linear(obs_size, 64),
             nn.ReLU(),
             )
         self.out_net = nn.Sequential(
-            nn.Linear(64 + action_size, 32), 
-            nn.ReLU(), 
-            nn.Linear(32, 1),
+            nn.Linear(64+act_size, 32),
+            nn.ReLU(),
+            nn.Linear(32,1)
             )
-    def forward(self, x, a):
+    def forward(self, x,a):
         obs = self.obs_net(x)
-        q_val = self.out_net(torch.cat([obs, a], dim = 1))
-        return q_val
+        out = self.out_net(torch.cat([obs, a], dim=1))
+        return out 
 
 
-class AtariA2C(nn.Module):
-    def __init__(self, input_shape, n_actions):
-        super(AtariA2C, self).__init__()
-
-        self.conv = nn.Sequential(
-            nn.Conv2d(input_shape, 32, kernel_size=8, stride=4),
-            nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=4, stride=2),
-            nn.ReLU(),
-            nn.Conv2d(64, 64, kernel_size=3, stride=1),
-            nn.ReLU()
-        )
-
-        conv_out_size = self._get_conv_out(input_shape)
-        self.policy = nn.Sequential(
-            nn.Linear(conv_out_size, 512),
-            nn.ReLU(),
-            nn.Linear(512, n_actions)
-        )
-        # return the probabilityof actions 
-
-        self.value = nn.Sequential(
-            nn.Linear(conv_out_size, 512),
-            nn.ReLU(),
-            nn.Linear(512, 1)
-        )
-        # return the estimated state value
-
-    def _get_conv_out(self, shape):
-        o = self.conv(torch.zeros(1, *shape))
-        return int(np.prod(o.size()))
-
-    def forward(self, x):
-        fx = x.float() / 256
-        conv_out = self.conv(fx).view(fx.size()[0], -1)
-        return self.policy(conv_out), self.value(conv_out)
 
 
-class ModelActor(nn.Module):
+
+
+class Actor(nn.Module):
     '''
     The network is designed for continuous action
 
@@ -302,7 +307,7 @@ class ModelActor(nn.Module):
     ------
     mean of action vector
     '''
-    def __init__(self, obs_size,act_size):
+    def __init__(self, obs_size, act_size):
         super(ModelActor, self).__init__()
 
         self.mu = nn.Sequential(
@@ -318,7 +323,7 @@ class ModelActor(nn.Module):
     def forward(self, x):
         return self.mu(x)
 
-class ModelCritic(nn.Module):
+class Critic(nn.Module):
     '''
     calculate the state value
 
@@ -342,18 +347,10 @@ class ModelCritic(nn.Module):
     def forward(self, x):
         return self.value(x)
 
-class AgentA2C(ptan.agent.BaseAgent):
-    def __init__(self, net, device = 'cpu'):
-        self.net = net 
-        self.device = device 
 
-    def __call__(self, states, agent_states):
-        states_v = ptan.agent.float32_preprocessor(states).to(self.device)
-        mu_v = self.net(states_v)
-        mu = mu_v.data.cpu().numpy()
-        logstd = self.net.logstd.data.cpu().numpy()
-        actions = mu + np.exp(logstd)* np.random.normal(size=logstd.shape)
-        return actions, agent_states
+
+
+
 
 
 
