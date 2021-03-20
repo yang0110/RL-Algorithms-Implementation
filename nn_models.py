@@ -348,6 +348,95 @@ class Critic(nn.Module):
         return self.value(x)
 
 
+class TD3_actor(nn.Module):
+    def __init__(self, state_size, action_size ):
+        super(TD3_actor, self).__init__()
+        self.lin1 = nn.Linear(state_size, 64)
+        self.lin2 = nn.Linear(64, 64)
+        self.lin3 = nn.Linear(64, action_size)
+        # self.max_action = max_action
+
+    def forward(self, x):
+        x = self.lin1(x)
+        x = F.relu(x)
+        x = self.lin2(x)
+        x = F.relu()
+        x = self.lin3(x)
+        x = torch.tanh(x)
+        return x
+
+
+class TD3_critic(nn.Module):
+    def __init__(self, state_size, action_size):
+        super(TD3_critic, self).__init__()
+        self.net1 = nn.Sequential(
+                nn.Linear(state_size+action_size, 64),
+                nn.ReLU(),
+                nn.Linear(64, 64),
+                nn.ReLU(),
+                nn.Linear(64, 1),
+            )
+
+        self.net2 = nn.Sequential(
+                nn.Linear(state_size+action_size, 64),
+                nn.ReLU(),
+                nn.Linear(64, 64),
+                nn.ReLU(),
+                nn.Linear(64, 1),
+            )
+
+    def forward(self, state, action):
+        sa = torch.cat([state, action], 1)
+        q1 = self.net1(sa)
+        q2 = self.net2(sa)
+        return q1, q2
+
+
+
+
+class SAC_actor(nn.Module):
+    def __init__(self, state_size, action_size, min_log_std, max_log_std):
+        super().__init__()
+        self.min = min_log_std
+        self.max = max_log_std
+
+        self.net = nn.Sequential(
+                nn.Linear(state_size, 64), 
+                nn.ReLU(), 
+                nn.Linear(64, 64), 
+                nn.ReLU(), 
+                nn.Linear(64, action_size)
+        )
+
+    def forward(self, x):
+        x = self.net(x)
+        log_std = nn.Linear(x)
+        log_std = torch.clamp(log_std, self.min, self.max)
+        return x, log_std
+
+
+class SAC_critic(nn.Module):
+    def __init__(self, state_size, action_size):
+        super().__init__()
+        self.net_q = nn.Sequential(
+            nn.Linear(state_size+action_size, 64), 
+            nn.ReLU(), 
+            nn.Linear(64, 64), 
+            nn.ReLU(), 
+            nn.Linear(64, 1),
+            )
+        self.net_v = nn.Sequential(
+            nn.Linear(state_size, 64), 
+            nn.ReLU(), 
+            nn.Linear(64, 64), 
+            nn.ReLU(), 
+            nn.Linear(64, 1),
+            )
+    def forward(self, state, action):
+        x = torch.cat([state, action], dim=1)
+        q = self.net_q(x)
+        v = self.net_v(state)
+        return q, v
 
 
 
