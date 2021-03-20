@@ -1,3 +1,3 @@
 # RL-Algorithms-Implementation
-My Implementation of DQN, AC, A3C,PPO, DDPG, TD3, SAC.
+My Implementation of DQN, AC, PPO, DDPG, TD3, SAC.
 
