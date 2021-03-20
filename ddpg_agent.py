@@ -43,55 +43,34 @@ class DDPG:
 	def init_net(self):
 		self.actor_net = DDPG_actor(self.env.observation_space.shape[0], self.env.action_space.shape[0])
 		self.critic_net = DDPG_critic(self.env.observation_space.shape[0], self.env.action_space.shape[0])
-
 		self.target_actor_net = DDPG_actor(self.env.observation_space.shape[0], self.env.action_space.shape[0])
 		self.target_critic_net = DDPG_critic(self.env.observation_space.shape[0], self.env.action_space.shape[0])
-
 		self.optimizer_actor = optim.Adam(self.actor_net.parameters(), lr = self.learning_rate_actor)
 		self.optimizer_critic = optim.Adam(self.critic_net.parameters(), lr = self.learning_rate_critic)
 
 	def take_action(self):
-		# print('take_action')
 		state_a = np.array([self.state], copy=False)
 		state_v = torch.FloatTensor(state_a).to('cpu')
-		# print('state_v', state_v.shape)
 		action_v = self.actor_net(state_v)
-		# print('action_v', action_v)
 		action  = action_v.squeeze(dim=-1).data.cpu().numpy()
-		# print('action', action)
-		# if random.uniform(0, 1) < self.epsilon:
 		action = action + np.random.normal(size = self.env.action_space.shape[0], scale = self.sigma)
 		action = np.clip(action, -1, 1)
 		next_state, reward, self.done, info = self.env.step(action)
-		# print('next_state', next_state.shape, next_state)
-		# print('state', self.state.shape, self.state)
 		exp = Experience(self.state, action, reward,  self.done, next_state)
 		self.exp_buffer.append(exp)
 		self.total_reward += reward 
 		self.step_num += 1
-		# print('self.state', self.state)
 		self.state = next_state
-		# print('self.state', self.state)
 
 	def update_net(self):
-		# print('update_net')
 		states_v, actions_v, rewards_v, dones_v, next_states_v = self.exp_buffer.sample(self.batch_size)
-
 		self.optimizer_critic.zero_grad()
 		q_v = self.critic_net(states_v, actions_v)
-		# print('q_v', q_v, q_v.size())
 		next_actions_v = self.target_actor_net(states_v)
 		next_q_v = self.target_critic_net(next_states_v, next_actions_v)
-		# print('next_q_v', next_q_v, next_q_v.size())
-		# print('dones_v', dones_v, dones_v.size())
 		next_q_v[dones_v] = 0.0
-		# print('next_q_v', next_q_v, next_q_v.size())
-		# print('rewards_v', rewards_v.unsqueeze(dim=-1), rewards_v.unsqueeze(dim=-1).size())
 		q_ref_v = rewards_v.unsqueeze(dim=-1) + next_q_v * self.gamma
-		# print('nex_q_v', next_q_v * self.gamma)
-		# print('q_ref_v', q_ref_v, q_ref_v.size())
 		self.critic_loss_v = F.mse_loss(q_v, q_ref_v.detach())
-		# print('self.critic_loss_v', self.critic_loss_v)
 		self.critic_loss_v.backward()
 		self.optimizer_critic.step()
 
@@ -100,14 +79,12 @@ class DDPG:
 		self.actor_loss_v = - self.critic_net(states_v, actions_v).mean()
 		self.actor_loss_v.backward()
 		self.optimizer_actor.step()
+		
 		return self.actor_loss_v.item(), self.critic_loss_v.item()
 
 	def update_target_net(self):
-		# print('update target net')
 		self.target_actor_net = alpha_sync(self.actor_net, self.target_actor_net, self.alpha)
 		self.target_critic_net = alpha_sync(self.critic_net, self.target_critic_net, self.alpha)
-		# self.target_actor_net.load_state_dict(self.actor_net.state_dict())
-		# self.target_critic_net.load_state_dict(self.critic_net.state_dict())
 
 	def run(self):
 		for epi in range(self.epi_num):
@@ -127,21 +104,6 @@ class DDPG:
 
 		print('DDPG ~~ Training Finished !')
 		return self.epi_total_reward, self.epi_step_num, self.epi_actor_loss, self.epi_critic_loss
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
