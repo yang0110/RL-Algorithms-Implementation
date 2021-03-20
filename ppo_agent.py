@@ -37,8 +37,8 @@ class PPO:
 		self.trajectory = []
 
 	def init_net(self):
-		self.net_act = actor_net(self.env.observation_space.shape[0], self.env.action_space.shape[0]).to(device)
-		self.net_crt = critic_net(self.env.observation_space.shape[0]).to(device)
+		self.net_act = Actor(self.env.observation_space.shape[0], self.env.action_space.shape[0]).to(device)
+		self.net_crt = Critic(self.env.observation_space.shape[0]).to(device)
 		self.opt_act = optim.Adam(self.actor_net.parameters(), lr=self.learning_rate_actor)
 		self.opt_crt = optim.Adam(self.critic_net.parameters(), lr=self.learning_rate_critic)
 
@@ -64,12 +64,8 @@ class PPO:
 		self.traj_actions_v = torch.FloatTensor(traj_actions).to('cpu')
 		mu_v = self.net_crt(traj_states_v)
 		old_logprob_v = cal_logprob(mu_v, net.act.logstd, traj_actions_v)
-        # the logarithm of probability of the actions taken 
         traj_adv_v, self.traj_ref_v = cal_adv_ref(trajectory, net_crt, traj_states_v, device=device)
-
 		self.traj_adv_v = (traj_adv_v - torch.mean(traj_adv_v))/torch.std(traj_adv_v)
-        # normalized advantage's mean and variance to improve the training stability.
-        # trajectory = trajectory[:-1]
         self.old_logprob_v = old_logprob_v[:-1].detach()
         self.trajectory.clear()
 
@@ -80,7 +76,6 @@ class PPO:
 				actions_v = self.traj_actions_v[batch_offset:batch_offset+self.batch_size]
                 batch_ref_v = self.traj_ref_v[batch_ofs:batch_ofs + ppo_batch_size]
                 batch_old_logprob_v = self.old_logprob_v[batch_ofs:batch_ofs + ppo_batch_size]
-
                 self.opt_crt.zero_grad()
                 value_v = self.net_crt(states_v)
                 loss_value_v = F.mse_loss(value_v.squeeze(-1), batch_ref_v)
@@ -116,6 +111,5 @@ class PPO:
 			if epi % 10 == 0:
 				print('ppo: epi {}, total_reward {}, step_num {}, loss'.format(epi, self.epi_total_reward, self.step_num, self.loss_list[-1]))
 		return self.epi_total_reward, self.epi_step_num, self.loss_list
-
 
 
